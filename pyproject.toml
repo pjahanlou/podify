@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podify"
+version = "0.1.0"
+description = "Turn a URL into a ~20-minute single-narrator MP3 lecture."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40",
+    "ddgs",
+    "trafilatura>=1.8",
+    "beautifulsoup4>=4.12",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "piper-tts>=1.2",
+    "onnxruntime>=1.17",
+    "lameenc>=1.4",
+]
+
+[project.scripts]
+podify = "src:main"
+
+[tool.setuptools]
+packages = ["src"]

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+runs/
+voices/
+.env
+.DS_Store
+.claude/settings.local.json
