@@ -16,7 +16,7 @@ pip install -e .
 cp .env.example .env                     # then add your OPENROUTER_API_KEY
 
 podify https://example.com/some-article  # first run auto-downloads the Piper voice (~60MB) -> voices/
-podify <url> --from-stage author         # resume from a cached stage
+podify <url> --from-stage author         # recompute from this stage on (earlier stay cached)
 podify <url> --review-script false       # skip the human-in-the-loop pause
 ```
 MP3 is encoded in-process with lameenc — no ffmpeg needed. TTS is local via Piper, so the
@@ -24,7 +24,8 @@ audio step is free and offline; only the research agent + author calls use the n
 
 ## Structure (Phase A)
 - `src/__init__.py` — `main()` CLI, config constants, `Run` dataclass (the agent/graph
-  **state**), orchestration + artifact caching under `runs/<url-hash>/`.
+  **state**), `logging` setup, orchestration, and the unified cache: one `state.json` per run
+  under `runs/<url-hash>/` (the `.mp3` sits beside it).
 - `src/fetch.py` — `fetch_url()`: download + extract clean text. Also the agent's `fetch_url`
   **client-side tool**.
 - `src/agent.py` — `ResearchAgent`: the hand-written **agent loop** (web_search + fetch_url).
@@ -45,6 +46,14 @@ the agent's tools run in our own process (a pure ReAct loop).
   `--flag/--no-flag` pair.
 - **OOP:** a class only where there's real state (the agent). Stateless stages are plain
   functions. Run state is a `@dataclass`.
+- **Caching:** every stage shares one `runs/<hash>/state.json` (keyed by the 12-char SHA1 of
+  the URL) holding `source_text`, `notes`, `citations`, `script`; the `.mp3` is separate.
+  `load_state`/`save_state` make each stage's cache check identical — a stage is skipped when
+  its field is already populated; `--from-stage X` clears fields from `X` on to force recompute.
+- **Logging, not print:** diagnostics go through `logging` (loggers `podify`, `podify.research`,
+  `podify.audio`; configured once in `main()`). Only the interactive HITL prompt uses `print`/`input`.
+- **Errors:** stages/helpers raise `PodifyError` (never `sys.exit`); `main()` catches it, logs
+  the message, and exits non-zero.
 - **Models (via OpenRouter):** author uses `anthropic/claude-opus-4.7` (quality); the research
   agent uses `anthropic/claude-sonnet-4.6` (speed/cost).
 - Start minimal; keep enhancements (evaluator node, sectioned generation, orchestrator) as a
@@ -56,8 +65,8 @@ the agent's tools run in our own process (a pure ReAct loop).
 | `ResearchAgent.run()` | agent loop (ReAct: reason -> act -> observe) |
 | `web_search` (DuckDuckGo, we run it) | client-side tool / function calling |
 | `fetch_url` (we run it) | client-side tool / function calling |
-| `stop_reason` handling | the agent control loop / state machine |
-| `MAX_AGENT_ITERS`, `max_uses` | guardrails |
+| `finish_reason` / `tool_calls` handling | the agent control loop / state machine |
+| `MAX_AGENT_ITERS`, `MAX_WEB_SEARCHES` | guardrails |
 | `--review-script` pause | human-in-the-loop (HITL) |
 | `Run` dataclass | agent/graph state |
 

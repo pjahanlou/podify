@@ -49,7 +49,7 @@ podify https://example.com/some-article
 | `--out` | `runs/<hash>/lecture.mp3` | output MP3 path |
 | `--voice` | `en_US-lessac-medium` | Piper voice id |
 | `--minutes` | `20` | target length in minutes |
-| `--from-stage` | `fetch` | resume from a cached stage: `fetch`, `research`, `author`, `audio` |
+| `--from-stage` | _(all cached)_ | force a recompute from this stage onward: `fetch`, `research`, `author`, `audio` |
 | `--review-script` | `true` | pause to read/edit the script before TTS |
 
 Examples:
@@ -65,9 +65,10 @@ its path; edit `runs/<hash>/script.md` if you like, then press Enter to narrate.
 
 ## Notes
 
-- **Caching & resume:** each run writes its artifacts under `runs/<url-hash>/`
-  (`extracted.txt`, `notes.json`, `script.md`, `lecture.mp3`). Re-runs reuse the cache, and
-  `--from-stage` skips ahead without repaying for earlier LLM work.
+- **Caching & resume:** each run caches its work in `runs/<url-hash>/state.json` (the fetched
+  text, research notes, and script) alongside the `lecture.mp3`. Re-runs reuse the cache;
+  `--from-stage` forces a recompute from a given stage onward (earlier stages still load from
+  cache) without repaying for their LLM work.
 - **Requirements:** Python 3.11+, an OpenRouter API key, and the one-time voice download.
   No ffmpeg — the MP3 is encoded in-process with lameenc.
 - **Code map:** `src/__init__.py` (CLI, config, run state, orchestration) plus the four

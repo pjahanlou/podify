@@ -6,6 +6,7 @@ between paragraphs ourselves, then encode the stitched 16-bit PCM to MP3 with la
 """
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -13,9 +14,11 @@ from pathlib import Path
 from . import DEFAULT_VOICE, REPO_ROOT
 
 _VOICES_DIR = REPO_ROOT / "voices"
-_LENGTH_SCALE = 1.05       # slightly slower than default -> relaxed walking pace
+_LENGTH_SCALE = 0.95       # slightly slower than default -> relaxed walking pace
 _PARAGRAPH_SILENCE = 0.45  # seconds of silence between paragraphs
 _BITRATE = 128             # kbps
+
+log = logging.getLogger("podify.audio")
 
 
 def synthesize(script: str, voice: str, out_path: Path) -> Path:
@@ -37,11 +40,11 @@ def synthesize(script: str, voice: str, out_path: Path) -> Path:
             silence = _silence(sample_rate, _PARAGRAPH_SILENCE)
         if i < len(paragraphs) - 1:
             pcm += silence
-        print(f"[audio]   narrated paragraph {i + 1}/{len(paragraphs)}")
+        log.info("narrated paragraph %d/%d", i + 1, len(paragraphs))
 
     _encode_mp3(bytes(pcm), sample_rate, out_path)
     secs = len(pcm) // 2 / sample_rate
-    print(f"[audio] ~{secs / 60:.1f} min of audio -> {out_path}")
+    log.info("~%.1f min of audio -> %s", secs / 60, out_path)
     return out_path
 
 
@@ -50,7 +53,7 @@ def _ensure_voice(voice: str) -> Path:
     if model.exists():
         return model
     _VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"[audio] downloading Piper voice {voice} (~60MB, one time)...")
+    log.info("downloading Piper voice %s (~60MB, one time)...", voice)
     subprocess.run(
         [sys.executable, "-m", "piper.download_voices", "--download-dir",
          str(_VOICES_DIR), voice],

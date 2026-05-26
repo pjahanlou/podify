@@ -18,6 +18,7 @@ The loop is a small state machine over `finish_reason` / the presence of tool_ca
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 
 from . import MAX_AGENT_ITERS, MAX_WEB_SEARCHES, MODEL_RESEARCH, client
@@ -25,6 +26,8 @@ from .fetch import fetch_url
 
 _MAX_FETCH_CHARS = 6000  # cap a fetched page so one tool result can't flood the context
 _SEARCH_RESULTS = 5
+
+log = logging.getLogger("podify.research")
 
 # --- tool definitions (OpenAI function-calling schema) ----------------------
 WEB_SEARCH_TOOL = {
@@ -137,7 +140,7 @@ class ResearchAgent:
                 notes = msg.content or ""
                 break
         else:
-            print(f"[research] hit max_iters={self.max_iters} guardrail")
+            log.warning("hit max_iters=%d guardrail", self.max_iters)
 
         return ResearchResult(notes=notes.strip(), citations=self.citations)
 
@@ -163,9 +166,9 @@ class ResearchAgent:
         try:
             results = list(DDGS().text(query, max_results=_SEARCH_RESULTS))
         except Exception as e:
-            print(f"[research]   web_search FAILED '{query}': {e}")
+            log.warning("web_search failed %r: %s", query, e)
             return f"Search error: {e}"
-        print(f"[research]   web_search '{query}' -> {len(results)} results")
+        log.info("web_search %r -> %d results", query, len(results))
         lines = []
         for r in results:
             url, title, body = r.get("href", ""), r.get("title", ""), r.get("body", "")
@@ -177,10 +180,10 @@ class ResearchAgent:
         try:
             text = fetch_url(url)[:_MAX_FETCH_CHARS]
             self._cite(url, url)
-            print(f"[research]   fetch_url -> {url} ({len(text)} chars)")
+            log.info("fetch_url -> %s (%d chars)", url, len(text))
             return text
         except Exception as e:  # feed the error back so the agent can recover
-            print(f"[research]   fetch_url FAILED {url}: {e}")
+            log.warning("fetch_url failed %s: %s", url, e)
             return f"Error fetching {url}: {e}"
 
     def _cite(self, url: str, title: str) -> None:
@@ -216,6 +219,6 @@ class ResearchAgent:
                     a = {}
                 arg = a.get("query") or a.get("url") or ""
                 desc.append(f"{tc.function.name}({arg})")
-            print(f"[research] turn {i}: tool_calls -> " + ", ".join(desc))
+            log.info("turn %d: tool_calls -> %s", i, ", ".join(desc))
         else:
-            print(f"[research] turn {i}: final notes ({len(msg.content or '')} chars)")
+            log.info("turn %d: final notes (%d chars)", i, len(msg.content or ""))
