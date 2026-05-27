@@ -16,10 +16,11 @@ The pipeline is `fetch -> research -> author -> audio`:
 
 - **fetch** — download the URL and extract clean article text via tiered fallback (trafilatura
   → BeautifulSoup → SPA preload JSON → Jina Reader → largest block → HITL paste).
-- **research** — a small hand-written agent loop (ReAct) the model drives with two tools,
-  `web_search` (DuckDuckGo) and `fetch_url`, to gather the definitions, analogies, and
-  examples the source assumes; it returns cited teaching notes. Bounded by iteration and
-  search guardrails.
+- **research** — a **plan-and-execute** agent: one Opus call identifies 3–7 knowledge gaps
+  the listener needs, then a Sonnet ReAct loop fills them using three client-side tools —
+  `web_search` (DuckDuckGo), `fetch_url`, and `update_progress` (records per-gap coverage).
+  Stops when all gaps are covered, the model declares done, stagnation is detected, or the
+  hard iteration cap fires.
 - **author** — a single LLM call turns the source plus notes into an audio-first lecture
   script (hook, roadmap, simple-to-advanced body, recaps, close).
 - **audio** — narrates the script and encodes an MP3 with lameenc (no ffmpeg). Two backends:

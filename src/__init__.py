@@ -16,14 +16,16 @@ from pathlib import Path
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 MODEL_AUTHOR = "anthropic/claude-opus-4.7"      # authoring wants quality
-MODEL_RESEARCH = "anthropic/claude-sonnet-4.6"  # the research agent wants speed/cost
+MODEL_PLANNER = MODEL_AUTHOR                    # gap planning: same Opus quality (one-shot)
+MODEL_RESEARCH = "anthropic/claude-sonnet-4.6"  # research loop: speed/cost
 MODEL_TTS = "gpt-4o-mini-tts"                  # TTS via direct OpenAI (--tts openai)
 TARGET_MINUTES = 20
 WORDS_PER_MINUTE = 135                 # relaxed teacher pace
 DEFAULT_VOICE = "en_US-lessac-medium"
 DEFAULT_OPENAI_VOICE = "onyx"
-MAX_AGENT_ITERS = 6                    # guardrail: cap the agent loop
+MAX_AGENT_ITERS = 8                    # guardrail: hard cap on research loop iterations
 MAX_WEB_SEARCHES = 5                   # guardrail: cap client-side searches
+MAX_STAGNANT_TURNS = 3                 # stop if this many consecutive turns add nothing new
 MIN_SOURCE_CHARS = 500                 # guardrail: refuse near-empty extractions
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
