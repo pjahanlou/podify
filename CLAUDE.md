@@ -31,7 +31,10 @@ it does NOT go through OpenRouter.
 - `src/fetch.py` — `fetch_url()`: download + extract clean text via tiered fallback (trafilatura
   → bs4 → SPA preload JSON → Jina Reader → largest block → HITL paste). Also the agent's
   `fetch_url` **client-side tool**.
-- `src/agent.py` — `ResearchAgent`: the hand-written **agent loop** (web_search + fetch_url).
+- `src/agent.py` — `ResearchAgent`: **plan-and-execute** agent. Phase 1: one Opus call
+  identifies `Gap`s (knowledge gaps). Phase 2: Sonnet ReAct loop with three client-side tools
+  (`web_search`, `fetch_url`, `update_progress`). Stop conditions: all gaps covered →
+  stagnation → hard cap.
 - `src/author.py` — `write_script()`: source + notes -> the lecture script.
 - `src/audio.py` — two TTS backends: Piper (local, offline) and OpenAI TTS (`gpt-4o-mini-tts`
   via `api.openai.com`). Both stitch paragraph silence and encode MP3 with lameenc.
@@ -40,10 +43,11 @@ it does NOT go through OpenRouter.
 `fetch -> research (the agent) -> author -> audio`. Mostly a deterministic **workflow** with
 one **agentic node** (research). v0 = 2 LLM steps: the research agent, then the author call.
 
-**Backend:** all LLM calls go through **OpenRouter** (OpenAI-compatible SDK) to Claude models
-(`anthropic/claude-opus-4.7`, `anthropic/claude-sonnet-4.6`). OpenRouter doesn't expose
-Anthropic server tools, so `web_search` is a **client-side** DuckDuckGo tool — meaning both of
-the agent's tools run in our own process (a pure ReAct loop).
+**Backend:** all LLM calls go through **OpenRouter** (OpenAI-compatible SDK) to Claude models.
+OpenRouter doesn't expose Anthropic server tools, so all three agent tools run client-side in
+our own process. Model split: gap planning uses `anthropic/claude-opus-4.7` (one-shot, high
+stakes); the research loop uses `anthropic/claude-sonnet-4.6` (speed/cost); authoring uses
+Opus again.
 
 ## Conventions
 - **Boolean CLI flags take an explicit value:** `--review-script true|false` — never a
@@ -58,19 +62,22 @@ the agent's tools run in our own process (a pure ReAct loop).
   `podify.audio`; configured once in `main()`). Only the interactive HITL prompt uses `print`/`input`.
 - **Errors:** stages/helpers raise `PodifyError` (never `sys.exit`); `main()` catches it, logs
   the message, and exits non-zero.
-- **Models (via OpenRouter):** author uses `anthropic/claude-opus-4.7` (quality); the research
-  agent uses `anthropic/claude-sonnet-4.6` (speed/cost).
+- **Models (via OpenRouter):** author + gap planner use `anthropic/claude-opus-4.7` (quality,
+  one-shot decisions); research loop uses `anthropic/claude-sonnet-4.6` (speed/cost).
 - Start minimal; keep enhancements (evaluator node, sectioned generation, orchestrator) as a
   backlog, not upfront work.
 
 ## Terminology map (code -> concept)
 | Code | Concept |
 |---|---|
-| `ResearchAgent.run()` | agent loop (ReAct: reason -> act -> observe) |
+| `ResearchAgent.run()` | plan-and-execute agent loop |
+| `_plan_gaps()` | planner node (one Opus call, produces the research agenda) |
+| `Gap` dataclass | structured goal / task item |
 | `web_search` (DuckDuckGo, we run it) | client-side tool / function calling |
 | `fetch_url` (we run it) | client-side tool / function calling |
+| `update_progress` (we run it) | client-side tool / progress tracking |
 | `finish_reason` / `tool_calls` handling | the agent control loop / state machine |
-| `MAX_AGENT_ITERS`, `MAX_WEB_SEARCHES` | guardrails |
+| `MAX_AGENT_ITERS`, `MAX_WEB_SEARCHES`, `MAX_STAGNANT_TURNS` | guardrails |
 | `--review-script` pause | human-in-the-loop (HITL) |
 | `Run` dataclass | agent/graph state |
 
