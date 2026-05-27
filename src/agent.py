@@ -211,14 +211,12 @@ class ResearchAgent:
     @staticmethod
     def _log_turn(i: int, msg) -> None:
         if msg.tool_calls:
-            desc = []
             for tc in msg.tool_calls:
                 try:
                     a = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     a = {}
                 arg = a.get("query") or a.get("url") or ""
-                desc.append(f"{tc.function.name}({arg})")
-            log.info("turn %d: tool_calls -> %s", i, ", ".join(desc))
+                log.info("[turn %d] %s: %s", i, tc.function.name, arg)
         else:
-            log.info("turn %d: final notes (%d chars)", i, len(msg.content or ""))
+            log.info("[turn %d] writing notes (%d chars)", i, len(msg.content or ""))

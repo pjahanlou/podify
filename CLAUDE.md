@@ -13,24 +13,28 @@ concepts — see the terminology map below.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-cp .env.example .env                     # then add your OPENROUTER_API_KEY
+cp .env.example .env                     # add OPENROUTER_API_KEY; OPENAI_API_KEY only needed for --tts openai
 
 podify https://example.com/some-article  # first run auto-downloads the Piper voice (~60MB) -> voices/
 podify <url> --from-stage author         # recompute from this stage on (earlier stay cached)
 podify <url> --review-script false       # skip the human-in-the-loop pause
+podify <url> --tts openai                # use OpenAI TTS (gpt-4o-mini-tts) instead of Piper
 ```
-MP3 is encoded in-process with lameenc — no ffmpeg needed. TTS is local via Piper, so the
-audio step is free and offline; only the research agent + author calls use the network.
+MP3 is encoded in-process with lameenc — no ffmpeg needed. Piper TTS is local and offline.
+`--tts openai` calls OpenAI's TTS API directly (`api.openai.com`) and requires `OPENAI_API_KEY` in `.env`;
+it does NOT go through OpenRouter.
 
 ## Structure (Phase A)
 - `src/__init__.py` — `main()` CLI, config constants, `Run` dataclass (the agent/graph
   **state**), `logging` setup, orchestration, and the unified cache: one `state.json` per run
   under `runs/<url-hash>/` (the `.mp3` sits beside it).
-- `src/fetch.py` — `fetch_url()`: download + extract clean text. Also the agent's `fetch_url`
-  **client-side tool**.
+- `src/fetch.py` — `fetch_url()`: download + extract clean text via tiered fallback (trafilatura
+  → bs4 → SPA preload JSON → Jina Reader → largest block → HITL paste). Also the agent's
+  `fetch_url` **client-side tool**.
 - `src/agent.py` — `ResearchAgent`: the hand-written **agent loop** (web_search + fetch_url).
 - `src/author.py` — `write_script()`: source + notes -> the lecture script.
-- `src/audio.py` — Piper synth + stitch -> MP3.
+- `src/audio.py` — two TTS backends: Piper (local, offline) and OpenAI TTS (`gpt-4o-mini-tts`
+  via `api.openai.com`). Both stitch paragraph silence and encode MP3 with lameenc.
 
 ## Pipeline
 `fetch -> research (the agent) -> author -> audio`. Mostly a deterministic **workflow** with

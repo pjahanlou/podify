@@ -40,6 +40,10 @@ def fetch_url(url: str) -> str:
         log.info("fetch: falling back to Jina Reader")
         text = _jina_fetch(url)
 
+    if len((text or "").strip()) < _THIN:
+        log.info("fetch: falling back to largest-block extraction")
+        text = _largest_block_text(html)
+
     text = (text or "").strip()
     if not text:
         raise ValueError(f"Could not extract readable text from {url}")
@@ -76,7 +80,7 @@ def _spa_preload_text(html: str) -> str:
 
 
 def _window_json_parse(html: str) -> str:
-    """window.X = JSON.parse("...escaped string...") — used by Substack and similar."""
+    """window.X = JSON.parse("...escaped string...") — common in React/Substack apps."""
     import json
     m = re.search(r'window\.\w+\s*=\s*JSON\.parse\("((?:[^"\\]|\\.)*)"\)', html)
     if not m:
@@ -84,14 +88,14 @@ def _window_json_parse(html: str) -> str:
     try:
         inner = json.loads('"' + m.group(1) + '"')  # un-escape the JSON string value
         data = json.loads(inner)
-        body_html = _find_key(data, "body_html")
+        body_html = _largest_html_value(data)
         return _bs4_text(body_html) if body_html else ""
     except Exception:
         return ""
 
 
 def _inline_script_json(html: str) -> str:
-    """<script type="application/json"> — used by Next.js (__NEXT_DATA__) and similar."""
+    """<script type="application/json"> — common in Next.js and similar frameworks."""
     import json
     from bs4 import BeautifulSoup
     try:
@@ -99,7 +103,7 @@ def _inline_script_json(html: str) -> str:
         if not tag or not tag.string:
             return ""
         data = json.loads(tag.string)
-        body_html = _find_key(data, "body_html")
+        body_html = _largest_html_value(data)
         return _bs4_text(body_html) if body_html else ""
     except Exception:
         return ""
@@ -119,18 +123,23 @@ def _jina_fetch(url: str) -> str:
         return ""
 
 
-def _find_key(obj, key: str):
-    """DFS search for a key anywhere in a nested dict/list."""
+def _largest_block_text(html: str) -> str:
+    """Final automated fallback: return the text of the largest block element on the page."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    candidates = soup.find_all(["article", "main", "div", "section"])
+    best = max(candidates, key=lambda t: len(t.get_text()), default=soup)
+    return best.get_text(separator="\n", strip=True)
+
+
+def _largest_html_value(obj) -> str:
+    """Return the longest string containing HTML tags found anywhere in the JSON."""
+    if isinstance(obj, str):
+        return obj if "<" in obj else ""
     if isinstance(obj, dict):
-        if key in obj:
-            return obj[key]
-        for v in obj.values():
-            r = _find_key(v, key)
-            if r:
-                return r
-    elif isinstance(obj, list):
-        for item in obj:
-            r = _find_key(item, key)
-            if r:
-                return r
-    return None
+        return max((_largest_html_value(v) for v in obj.values()), key=len, default="")
+    if isinstance(obj, list):
+        return max((_largest_html_value(i) for i in obj), key=len, default="")
+    return ""

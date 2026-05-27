@@ -14,11 +14,14 @@ from pathlib import Path
 
 # --- config -----------------------------------------------------------------
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
 MODEL_AUTHOR = "anthropic/claude-opus-4.7"      # authoring wants quality
 MODEL_RESEARCH = "anthropic/claude-sonnet-4.6"  # the research agent wants speed/cost
+MODEL_TTS = "gpt-4o-mini-tts"                  # TTS via direct OpenAI (--tts openai)
 TARGET_MINUTES = 20
 WORDS_PER_MINUTE = 135                 # relaxed teacher pace
 DEFAULT_VOICE = "en_US-lessac-medium"
+DEFAULT_OPENAI_VOICE = "onyx"
 MAX_AGENT_ITERS = 6                    # guardrail: cap the agent loop
 MAX_WEB_SEARCHES = 5                   # guardrail: cap client-side searches
 MIN_SOURCE_CHARS = 500                 # guardrail: refuse near-empty extractions
@@ -49,6 +52,7 @@ class Run:
     url: str
     workdir: Path
     voice: str = DEFAULT_VOICE
+    tts: str = "piper"
     target_minutes: int = TARGET_MINUTES
     out_path: Path | None = None
     source_text: str = ""
@@ -58,8 +62,9 @@ class Run:
     audio_path: Path | None = None
 
 
-# --- shared client (lazy, so fetch-only runs need no API key) ---------------
+# --- shared clients (lazy, so fetch-only runs need no API key) ---------------
 _client = None
+_openai_client = None
 
 
 def client():
@@ -79,6 +84,21 @@ def client():
             default_headers={"X-Title": "podify"},
         )
     return _client
+
+
+def openai_client():
+    """OpenAI client pointed directly at api.openai.com — used for TTS only."""
+    global _openai_client
+    if _openai_client is None:
+        import os
+
+        from openai import OpenAI
+
+        key = os.getenv("OPENAI_API_KEY")
+        if not key:
+            raise PodifyError("--tts openai requires OPENAI_API_KEY in .env")
+        _openai_client = OpenAI(base_url=OPENAI_BASE_URL, api_key=key)
+    return _openai_client
 
 
 def workdir_for(url: str) -> Path:
@@ -123,15 +143,35 @@ def do_fetch(run: Run) -> None:
         log.info("fetch: cached (%d chars)", len(run.source_text))
         return
     log.info("fetch: downloading %s", run.url)
-    text = fetch_url(run.url)
+    try:
+        text = fetch_url(run.url)
+    except Exception:
+        text = ""
+    if len(text) < MIN_SOURCE_CHARS:
+        text = _fetch_hitl(run.url)
     if len(text) < MIN_SOURCE_CHARS:
         raise PodifyError(
-            f"fetch: extracted only {len(text)} chars; the page may be paywalled or "
-            "JS-rendered."
+            f"fetch: could not extract content from {run.url}; "
+            "the page may be paywalled or require authentication."
         )
     run.source_text = text
     save_state(run)
     log.info("fetch: extracted %d chars", len(text))
+
+
+def _fetch_hitl(url: str) -> str:
+    print(f"\n[fetch] Could not automatically extract content from {url}.")
+    print("[fetch] Paste the article text below. Enter an empty line when done.")
+    lines = []
+    try:
+        while True:
+            line = input()
+            if not line:
+                break
+            lines.append(line)
+    except EOFError:
+        pass
+    return "\n".join(lines)
 
 
 def do_research(run: Run) -> None:
@@ -182,8 +222,8 @@ def do_audio(run: Run, review_script: bool) -> None:
     out = run.out_path or (run.workdir / "lecture.mp3")
     if review_script:
         _hitl_pause(run)
-    log.info("audio: synthesizing with Piper...")
-    run.audio_path = synthesize(run.script, run.voice, out)
+    log.info("audio: synthesizing with %s...", run.tts)
+    run.audio_path = synthesize(run.script, run.voice, out, tts=run.tts)
     log.info("audio: done -> %s", run.audio_path)
 
 
@@ -216,13 +256,18 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging.getLogger("primp").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     p = argparse.ArgumentParser(
         prog="podify", description="Turn a URL into a ~20-minute MP3 lecture."
     )
     p.add_argument("url", help="source article URL")
     p.add_argument("--out", type=Path, default=None, help="output mp3 path")
-    p.add_argument("--voice", default=DEFAULT_VOICE, help="Piper voice id")
+    p.add_argument("--tts", choices=["piper", "openai"], default="piper",
+                   help="TTS backend (default: piper)")
+    p.add_argument("--voice", default=None,
+                   help="voice id for the selected TTS backend")
     p.add_argument(
         "--minutes", type=int, default=TARGET_MINUTES, help="target length in minutes"
     )
@@ -240,11 +285,13 @@ def main(argv: list[str] | None = None) -> None:
         help="pause to review/edit the script before TTS (default true)",
     )
     args = p.parse_args(argv)
+    voice = args.voice or (DEFAULT_VOICE if args.tts == "piper" else DEFAULT_OPENAI_VOICE)
 
     run = Run(
         url=args.url,
         workdir=workdir_for(args.url),
-        voice=args.voice,
+        voice=voice,
+        tts=args.tts,
         target_minutes=args.minutes,
         out_path=args.out,
     )
